@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/favicon/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon/favicon-16x16.png">
+    <link rel="manifest" href="assets/favicon/site.webmanifest">
+    <title>Tracking Productivity</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: linear-gradient(to bottom, #e8f0ff, #ffffff);
+            margin: 0;
+            padding: 20px;
+            color: #333;
+            max-width: 480px;
+            margin: auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 24px;
+            color: #007bff;
+        }
+
+        #timerDisplay {
+            font-size: 48px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 30px;
+            color: #2c3e50;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 14px;
+            margin: 10px 0;
+            font-size: 16px;
+            border: none;
+            border-radius: 12px;
+            background-color: #007bff;
+            color: white;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0, 123, 255, 0.2);
+        }
+
+        .btn:disabled {
+            background-color: #aaa;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        .note-card {
+            background: white;
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            margin-top: 20px;
+        }
+
+        textarea {
+            width: 100%;
+            border: none;
+            font-size: 15px;
+            padding: 10px;
+            resize: none;
+            min-height: 80px;
+            background-color: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        textarea:disabled {
+            background-color: #eee;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>TRACKING PRODUCTIVITY</h1>
+    <div id="timerDisplay">00:00:00</div>
+
+    <button class="btn" onclick="mulai()">Mulai</button>
+    <button class="btn" onclick="matikanAlarm()" id="btnAlarm" disabled>Matikan Alarm</button>
+    <button class="btn" onclick="akhiri()" disabled>Selesai</button>
+
+    <div class="note-card">
+        <label for="catatan"><strong>Catatan:</strong></label>
+        <textarea id="catatan" placeholder="Tulis catatan di sini..."></textarea>
+    </div>
+
+    <audio id="alarmAudio" loop>
+        <source src="assets/ringtone.wav" type="audio/wav">
+    </audio>
+
+    <script>
+        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwJHSR9kI_kKphYQwmMjEbvz0Jqiofxz6i9phPhZ-cWSpWK4_nvetz93BhCstuBo8rzhQ/exec";
+
+        let startTime, lastUpdateTime, timerInterval, autoSaveInterval, alarmTimeout;
+        let productiveTime = 0;
+        let timeAlarm = 20 * 60 * 1000; // 20 minute
+        // let timeAlarm = 5000; // 5 second
+        let timeAutoSave = 30 * 60 * 1000; // 20 minute
+        // let timeAutoSave = 10000; // 10 second
+        let isAlarmActive = false;
+        let recordId = "ID-" + Date.now();
+
+        function formatTime(ms) {
+            const totalSec = Math.floor(ms / 1000);
+            const h = String(Math.floor(totalSec / 3600)).padStart(2, '0');
+            const m = String(Math.floor((totalSec % 3600) / 60)).padStart(2, '0');
+            const s = String(totalSec % 60).padStart(2, '0');
+            return `${h}:${m}:${s}`;
+        }
+
+        function updateDisplay() {
+            if (!startTime) return;
+            if (!isAlarmActive) {
+                const now = new Date();
+                productiveTime += now - lastUpdateTime;
+            }
+            lastUpdateTime = new Date();
+            document.getElementById("timerDisplay").textContent = formatTime(productiveTime);
+        }
+
+        function mulai() {
+            startTime = new Date();
+            lastUpdateTime = new Date();
+            productiveTime = 0;
+            recordId = "ID-" + Date.now();
+
+            timerInterval = setInterval(updateDisplay, 100);
+            alarmTimeout = setTimeout(playAlarm, timeAlarm);
+            autoSaveInterval = setInterval(autoSaveToSheet, timeAutoSave);
+
+            document.querySelector("button[onclick='mulai()']").disabled = true;
+            document.querySelector("button[onclick='akhiri()']").disabled = false;
+            document.getElementById("catatan").disabled = true;
+        }
+
+        function playAlarm() {
+            document.getElementById("alarmAudio").play();
+            isAlarmActive = true;
+            document.getElementById("btnAlarm").disabled = false;
+        }
+
+        function matikanAlarm() {
+            document.getElementById("alarmAudio").pause();
+            document.getElementById("alarmAudio").currentTime = 0;
+            isAlarmActive = false;
+            document.getElementById("btnAlarm").disabled = true;
+
+            alarmTimeout = setTimeout(playAlarm, timeAlarm);
+        }
+
+        function autoSaveToSheet() {
+            if (!startTime) return;
+
+            const now = new Date();
+            const tanggal = startTime.toLocaleDateString("id-ID");
+            const mulai = startTime.toLocaleTimeString("id-ID");
+            const akhir = now.toLocaleTimeString("id-ID");
+            const totalFormattedTime = formatTime(productiveTime);
+            const catatan = document.getElementById("catatan").value;
+
+            fetch(GOOGLE_SCRIPT_URL, {
+                method: "POST",
+                mode: "no-cors",
+                body: JSON.stringify({
+                    id: recordId,
+                    tanggal,
+                    mulai,
+                    akhir,
+                    totalFormattedTime,
+                    catatan
+                }),
+                headers: { "Content-Type": "application/json" }
+            }).catch(err => console.warn("AutoSave gagal:", err));
+        }
+
+        function akhiri() {
+            if (isAlarmActive) {
+                alert("Matikan alarm terlebih dahulu.");
+                return;
+            }
+
+            clearInterval(timerInterval);
+            clearInterval(autoSaveInterval);
+            clearTimeout(alarmTimeout);
+            updateDisplay();
+
+            const endTime = new Date();
+            const tanggal = startTime.toLocaleDateString("id-ID");
+            const mulai = startTime.toLocaleTimeString("id-ID");
+            const akhir = endTime.toLocaleTimeString("id-ID");
+            const totalFormattedTime = formatTime(productiveTime);
+            const catatan = document.getElementById("catatan").value;
+
+            fetch(GOOGLE_SCRIPT_URL, {
+                method: "POST",
+                mode: "no-cors",
+                body: JSON.stringify({
+                    id: recordId,
+                    tanggal,
+                    mulai,
+                    akhir,
+                    totalFormattedTime,
+                    catatan
+                }),
+                headers: { "Content-Type": "application/json" }
+            })
+                .catch(err => {
+                    console.error("Gagal simpan:", err);
+                });
+
+            document.querySelector("button[onclick='mulai()']").disabled = false;
+            document.querySelector("button[onclick='akhiri()']").disabled = true;
+            document.getElementById("catatan").disabled = false;
+            document.getElementById("catatan").value = "";
+        }
+    </script>
+</body>
+
+</html>
