@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8" />
@@ -93,13 +93,15 @@
     <h1>TRACKING PRODUCTIVITY</h1>
     <div id="timerDisplay">00:00:00</div>
 
-    <button class="btn" onclick="mulai()">Mulai</button>
-    <button class="btn" onclick="matikanAlarm()" id="btnAlarm" disabled>Matikan Alarm</button>
-    <button class="btn" onclick="akhiri()" disabled>Selesai</button>
+    <button class="btn" onclick="start()" id="btnStart">Start</button>
+    <button class="btn" onclick="stopAlarm()" id="btnStopAlarm" disabled>Stop Alarm</button>
+    <button class="btn" onclick="pause()" id="btnPause" disabled>Pause</button>
+    <button class="btn" onclick="resume()" id="btnResume" style="display:none;">Resume</button>
+    <button class="btn" onclick="finish()" id="btnFinish" disabled>Finish</button>
 
     <div class="note-card">
-        <label for="catatan"><strong>Catatan:</strong></label>
-        <textarea id="catatan" placeholder="Tulis catatan di sini..."></textarea>
+        <label for="notes"><strong>Notes:</strong></label>
+        <textarea id="notes" placeholder="Write your notes here..."></textarea>
     </div>
 
     <audio id="alarmAudio" loop>
@@ -107,16 +109,44 @@
     </audio>
 
     <script>
-        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwJHSR9kI_kKphYQwmMjEbvz0Jqiofxz6i9phPhZ-cWSpWK4_nvetz93BhCstuBo8rzhQ/exec";
+        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz2DgNFFjs4SAU0x8EQYxCbyWMha-ceqZ6c1aDvpkRw5WQihnNs1HGABzt1LEKLDyji/exec";
+
+        const btnStart = document.querySelector('#btnStart');
+        const btnStopAlarm = document.querySelector('#btnStopAlarm');
+        const btnPause = document.querySelector('#btnPause');
+        const btnResume = document.querySelector('#btnResume');
+        const btnFinish = document.querySelector('#btnFinish');
+        const inputNotes = document.querySelector('#notes');
 
         let startTime, lastUpdateTime, timerInterval, autoSaveInterval, alarmTimeout;
         let productiveTime = 0;
-        let timeAlarm = 20 * 60 * 1000; // 20 minute
-        // let timeAlarm = 5000; // 5 second
-        let timeAutoSave = 30 * 60 * 1000; // 20 minute
-        // let timeAutoSave = 10000; // 10 second
+        let timeAlarm = 20 * 60 * 1000;
+        let timeAutoSave = 30 * 60 * 1000;
         let isAlarmActive = false;
+        let isPaused = false;
+        let pauseStartTime, savedAlarmTime;
         let recordId = "ID-" + Date.now();
+
+        if ("Notification" in window && Notification.permission !== "granted") {
+            Notification.requestPermission().then(permission => {
+                if (permission === "granted") {
+                    console.log("Notification granted.");
+                }
+            });
+        }
+
+        function sendNotification(title, body) {
+            if ("Notification" in window && Notification.permission === "granted") {
+                const notification = new Notification(title, {
+                    body: body,
+                    icon: "assets/favicon/favicon-32x32.png"
+                });
+
+                notification.onclick = function () {
+                    window.open("https://jabjabrik.github.io/trackivity/");
+                };
+            }
+        }
 
         function formatTime(ms) {
             const totalSec = Math.floor(ms / 1000);
@@ -127,7 +157,7 @@
         }
 
         function updateDisplay() {
-            if (!startTime) return;
+            if (!startTime || isPaused) return;
             if (!isAlarmActive) {
                 const now = new Date();
                 productiveTime += now - lastUpdateTime;
@@ -136,7 +166,7 @@
             document.getElementById("timerDisplay").textContent = formatTime(productiveTime);
         }
 
-        function mulai() {
+        function start() {
             startTime = new Date();
             lastUpdateTime = new Date();
             productiveTime = 0;
@@ -146,90 +176,106 @@
             alarmTimeout = setTimeout(playAlarm, timeAlarm);
             autoSaveInterval = setInterval(autoSaveToSheet, timeAutoSave);
 
-            document.querySelector("button[onclick='mulai()']").disabled = true;
-            document.querySelector("button[onclick='akhiri()']").disabled = false;
-            document.getElementById("catatan").disabled = true;
+            btnStart.disabled = true;
+            btnFinish.disabled = false;
+            btnPause.disabled = false;
+            inputNotes.disabled = true;
         }
 
         function playAlarm() {
             document.getElementById("alarmAudio").play();
-            isAlarmActive = true
-            document.getElementById("btnAlarm").disabled = false;
+            isAlarmActive = true;
+
+            sendNotification("Break Reminder", "Turn off the alarm to continue productivity time");
+
+            btnStopAlarm.disabled = false;
+            btnPause.disabled = true;
+            btnFinish.disabled = true;
         }
 
-        function matikanAlarm() {
+        function stopAlarm() {
             document.getElementById("alarmAudio").pause();
             document.getElementById("alarmAudio").currentTime = 0;
             isAlarmActive = false;
-            document.getElementById("btnAlarm").disabled = true;
-
+            btnStopAlarm.disabled = true;
             alarmTimeout = setTimeout(playAlarm, timeAlarm);
+
+            btnFinish.disabled = false;
+            btnPause.disabled = false;
+        }
+
+        function pause() {
+            clearInterval(timerInterval);
+            clearTimeout(alarmTimeout);
+
+            pauseStartTime = new Date();
+            isPaused = true;
+            savedAlarmTime = timeAlarm - (pauseStartTime - lastUpdateTime);
+
+            btnPause.style.display = "none";
+            btnResume.style.display = "inline-block";
+            btnFinish.disabled = true;
+        }
+
+        function resume() {
+            if (!isPaused) return;
+            lastUpdateTime = new Date();
+            timerInterval = setInterval(updateDisplay, 100);
+            alarmTimeout = setTimeout(playAlarm, savedAlarmTime);
+            autoSaveInterval = setInterval(autoSaveToSheet, timeAutoSave);
+            isPaused = false;
+
+            btnResume.style.display = "none";
+            btnPause.style.display = "inline-block";
+            btnFinish.disabled = false;
         }
 
         function autoSaveToSheet() {
             if (!startTime) return;
-
             const now = new Date();
-            const tanggal = startTime.toLocaleDateString("id-ID");
-            const mulai = startTime.toLocaleTimeString("id-ID");
-            const akhir = now.toLocaleTimeString("id-ID");
+            const date = startTime.toLocaleDateString("en-GB");
+            const start = startTime.toLocaleTimeString("en-GB");
+            const end = now.toLocaleTimeString("en-GB");
             const totalFormattedTime = formatTime(productiveTime);
-            const catatan = document.getElementById("catatan").value;
+            const notes = inputNotes.value;
 
             fetch(GOOGLE_SCRIPT_URL, {
                 method: "POST",
                 mode: "no-cors",
-                body: JSON.stringify({
-                    id: recordId,
-                    tanggal,
-                    mulai,
-                    akhir,
-                    totalFormattedTime,
-                    catatan
-                }),
+                body: JSON.stringify({ id: recordId, date, start, end, totalFormattedTime, notes }),
                 headers: { "Content-Type": "application/json" }
-            }).catch(err => console.warn("AutoSave gagal:", err));
+            }).catch(err => sendNotification("Warning", "AutoSave failed"));
+
+            sendNotification("AutoSave Successfully", "information has been successfully saved in the spreadsheet");
         }
 
-        function akhiri() {
-            if (isAlarmActive) {
-                alert("Matikan alarm terlebih dahulu.");
-                return;
-            }
-
+        function finish() {
             clearInterval(timerInterval);
             clearInterval(autoSaveInterval);
             clearTimeout(alarmTimeout);
             updateDisplay();
 
             const endTime = new Date();
-            const tanggal = startTime.toLocaleDateString("id-ID");
-            const mulai = startTime.toLocaleTimeString("id-ID");
-            const akhir = endTime.toLocaleTimeString("id-ID");
+            const date = startTime.toLocaleDateString("en-GB");
+            const start = startTime.toLocaleTimeString("en-GB");
+            const end = endTime.toLocaleTimeString("en-GB");
             const totalFormattedTime = formatTime(productiveTime);
-            const catatan = document.getElementById("catatan").value;
+            const notes = inputNotes.value;
 
             fetch(GOOGLE_SCRIPT_URL, {
                 method: "POST",
                 mode: "no-cors",
-                body: JSON.stringify({
-                    id: recordId,
-                    tanggal,
-                    mulai,
-                    akhir,
-                    totalFormattedTime,
-                    catatan
-                }),
+                body: JSON.stringify({ id: recordId, date, start, end, totalFormattedTime, notes }),
                 headers: { "Content-Type": "application/json" }
-            })
-                .catch(err => {
-                    console.error("Gagal simpan:", err);
-                });
+            }).catch(err => console.error("Submit failed:", err));
 
-            document.querySelector("button[onclick='mulai()']").disabled = false;
-            document.querySelector("button[onclick='akhiri()']").disabled = true;
-            document.getElementById("catatan").disabled = false;
-            document.getElementById("catatan").value = "";
+            btnStart.disabled = false;
+            btnFinish.disabled = true;
+            btnPause.disabled = true;
+            btnPause.style.display = "inline-block";
+            btnResume.style.display = "none";
+            inputNotes.disabled = false;
+            inputNotes.value = "";
         }
     </script>
 </body>
